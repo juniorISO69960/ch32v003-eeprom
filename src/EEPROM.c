@@ -254,6 +254,106 @@ uint8_t EEPROM_saveVar(uint8_t id, uint16_t value) {
     return EEPROM_OK;
 }
 
+// Save multiple variables at once
+uint8_t EEPROM_saveVars(uint8_t *ids, uint16_t *values, uint8_t count) {
+    uint8_t status;
+    uint8_t varIds[10];      // Store up to 10 variables
+    uint16_t varValues[10];
+    uint8_t varCount = 0;
+
+    // If not initialized, erase and initialize
+    if (!EEPROM_isInitialized()) {
+        status = EEPROM_format();
+        if (status != EEPROM_OK) return status;
+
+        // Write marker
+        status = EEPROM_writeHalfWord(EEPROM_ADDRESS, EEPROM_MARKER);
+        if (status != EEPROM_OK) return status;
+
+        // Write reserved (just zeros)
+        status = EEPROM_writeHalfWord(EEPROM_ADDRESS + 2, 0);
+        if (status != EEPROM_OK) return status;
+    } else {
+        // Read all existing variables
+        uint32_t currentAddr = EEPROM_ADDRESS + 4;  // Start after marker
+
+        for (uint8_t i = 0; i < 10; i++) {
+            uint16_t entryId = *(volatile uint16_t*)currentAddr;
+
+            // Check for end of data (empty slot)
+            if (entryId == 0xFFFF) break;
+
+            uint16_t entryValue = *(volatile uint16_t*)(currentAddr + 2);
+            uint16_t entryCRC   = *(volatile uint16_t*)(currentAddr + 4);
+
+            // Check CRC
+            if (entryCRC == EEPROM_calcCRC(entryId, entryValue)) {
+                uint8_t baseId = entryId & 0xFF;
+                // Skip if this ID will be updated by our new list
+                uint8_t skip = 0;
+                for (uint8_t j = 0; j < count; j++) {
+                    if (ids[j] == baseId) {
+                        skip = 1;
+                        break;
+                    }
+                }
+                if (!skip) {
+                    varIds[varCount] = baseId;
+                    varValues[varCount] = entryValue;
+                    varCount++;
+                }
+            }
+            currentAddr += 6;  // Next entry
+        }
+    }
+
+    // Append all new variables (overwriting any previous ones)
+    for (uint8_t j = 0; j < count; j++) {
+        if (varCount >= 10) break; // prevent overflow
+        varIds[varCount] = ids[j];
+        varValues[varCount] = values[j];
+        varCount++;
+    }
+
+    // Erase page and rewrite everything
+    status = EEPROM_format();
+    if (status != EEPROM_OK) return status;
+
+    // Write marker
+    status = EEPROM_writeHalfWord(EEPROM_ADDRESS, EEPROM_MARKER);
+    if (status != EEPROM_OK) return status;
+
+    // Write reserved
+    status = EEPROM_writeHalfWord(EEPROM_ADDRESS + 2, 0);
+    if (status != EEPROM_OK) return status;
+
+    // Write each variable
+    uint32_t currentAddr = EEPROM_ADDRESS + 4;
+
+    for (uint8_t i = 0; i < varCount; i++) {
+        uint16_t varId    = varIds[i];
+        uint16_t varValue = varValues[i];
+        uint16_t varCRC   = EEPROM_calcCRC(varId, varValue);
+
+        // Write ID
+        status = EEPROM_writeHalfWord(currentAddr, varId);
+        if (status != EEPROM_OK) return status;
+
+        // Write value
+        status = EEPROM_writeHalfWord(currentAddr + 2, varValue);
+        if (status != EEPROM_OK) return status;
+
+        // Write CRC
+        status = EEPROM_writeHalfWord(currentAddr + 4, varCRC);
+        if (status != EEPROM_OK) return status;
+
+        currentAddr += 6;
+    }
+
+    return EEPROM_OK;
+}
+
+
 // Read a variable by ID
 uint16_t EEPROM_readVar(uint8_t id) {
     uint32_t addr;

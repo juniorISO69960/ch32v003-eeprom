@@ -30,6 +30,7 @@ uint8_t EEPROM_format(void);
 // Variable operations
 uint8_t EEPROM_saveVar(uint8_t id, uint16_t value);
 uint16_t EEPROM_readVar(uint8_t id);
+uint8_t EEPROM_saveVars(uint8_t *ids, uint16_t *values, uint8_t count);
 
 // Check if variable exists
 uint8_t EEPROM_varExists(uint8_t id);
